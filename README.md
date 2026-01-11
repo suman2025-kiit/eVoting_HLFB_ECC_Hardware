@@ -1,89 +1,203 @@
-## eVoting_HLFB_ECC_Hardware#
-##Electronics Voting (e-Voting) application using Hyperledger Fabric##
+# ECC-HLFB-eVOTING-FPGA-Validation (Vivado/Vitis + Hyperledger Fabric v2.2)
 
-Step-by-step procedure to upload and update the repository on GitHub
-Target repository: https://github.com/suman2025-kiit/eVoting_HLFB_ECC_Hardware
-This document explains how to upload (first time) and update (subsequent revisions) the complete project ECC-HLFB-eVOTING-FPGA-Validation/ into the above GitHub repository, including screenshots, README, and source code.
+This repository contains a **reference implementation** of a **hardware-assisted validation gate**
+for **ECC-HLFB-eVOTING** on a **permissioned Hyperledger Fabric (HLF) v2.2** blockchain.
 
-A. Prerequisites (local environment)
-1.	Install Git and verify:
-git --version
-2.	Ensure you can authenticate with GitHub using either a Personal Access Token (PAT) for HTTPS, or SSH key-based authentication.
-•	PAT (HTTPS): GitHub account → Settings → Developer settings → Personal access tokens.
-•	SSH: generate keys and test connectivity.
-ssh -T git@github.com
+The goal is to enforce **fast pre-validation** of e-Voting protocol messages using an FPGA datapath
+that outputs:
 
-B. Upload the prepared repository (first-time push)
-4.	Download and extract the repository ZIP locally (it should contain the folder ECC-HLFB-eVOTING-FPGA-Validation/).
-5.	Open a terminal inside the extracted folder:
-cd ECC-HLFB-eVOTING-FPGA-Validation
-6.	Initialize Git and create the first commit:
-git init
-git add .
-git commit -m "Initial commit: ECC-HLFB-eVOTING FPGA validation (Vivado/Vitis + Fabric v2.2)"
-7.	Connect your local folder to the GitHub remote repository.
-•	Option 1 (HTTPS):
-git remote add origin https://github.com/suman2025-kiit/eVoting_HLFB_ECC_Hardware.git
-•	Option 2 (SSH):
-git remote add origin git@github.com:suman2025-kiit/eVoting_HLFB_ECC_Hardware.git
-8.	Push the commit to GitHub. If your repository uses main:
-git branch -M main
-git push -u origin main
-•	If it uses master:
-git branch -M master
-git push -u origin master
-9.	Verify on GitHub that all directories appear (hardware/, software/, chaincode/) and that README.md renders correctly.
+- **Decision**: `ACCEPT` / `REJECT`
+- **Reason code (REC)**: `CERT_FAIL`, `SIG_FAIL`, `TIME_FAIL`, `REPLAY_FAIL`, `FMT_FAIL`, `EP_FAIL` (etc.)
 
-C. Update the repository (future revisions / incremental changes)
-10.	Before editing, pull the latest changes:
-git pull origin main
-11.	Modify required files (RTL, Vitis app, gateway, chaincode, screenshots).
-12.	Check changes:
-git status
-git diff
-13.	Stage and commit:
-git add .
-git commit -m "Update: refined REC reason codes and gateway submission flow"
-14.	Push updates:
-git push origin main
+Only `ACCEPT` transactions are forwarded to Fabric for endorsement/ordering/commit; `REJECT` attempts
+are logged (world-state or events) for **fraud tracing**, rate limiting, and audit analytics.
 
-D. Uploading screenshots and verifying paths in README
-15.	Keep screenshots only inside: hardware/screenshots/.
-16.	Ensure filenames match README.md exactly: valid_output.png and invalid_output.png.
-17.	Commit and push screenshots:
-git add hardware/screenshots/valid_output.png hardware/screenshots/invalid_output.png
-git commit -m "Add Vivado/Vitis validation screenshots (ACCEPT/REJECT)"
-git push origin main
+---
 
-E. Protecting crypto material (must NOT be committed)
-18.	Fabric TLS and user keys/certs must be stored locally only in: software/gateway_service/crypto/.
-19.	Confirm .gitignore blocks secrets:
-software/gateway_service/crypto/
-*.pem
-*.key
-*.crt
-20.	Verify that nothing secret is staged:
-git status
-•	If keys appear, remove them from staging:
-git restore --staged software/gateway_service/crypto/*
+## 1. Repository structure
 
-F. Recommended GitHub Releases for paper reproducibility
-21.	After completing a stable version, tag it:
-git tag -a v1.0 -m "ECC-HLFB-eVOTING FPGA validation release v1.0"
-git push origin v1.0
-22.	Create a GitHub Release named v1.0 and include the tag, screenshots, and the commit hash for reproducibility.
+```
+ECC-HLFB-eVOTING-FPGA-Validation/
+├─ README.md
+├─ LICENSE
+├─ .gitignore
+├─ hardware/
+│  ├─ rtl/
+│  │  ├─ validator_core.v
+│  │  └─ validator_codes.vh
+│  ├─ vivado/
+│  │  └─ build_notes.md
+│  └─ screenshots/
+│     ├─ valid_output.png
+│     └─ invalid_output.png
+├─ software/
+│  ├─ vitis_app/
+│  │  ├─ src/
+│  │  │  ├─ main.c
+│  │  │  ├─ fpga_mmio.c
+│  │  │  ├─ fpga_mmio.h
+│  │  │  ├─ validator_codes.h
+│  │  │  └─ http_client.c
+│  │  └─ Makefile
+│  └─ gateway_service/
+│     ├─ server.js
+│     ├─ package.json
+│     ├─ README_gateway.md
+│     └─ crypto/   (ignored)
+└─ chaincode/
+   └─ evotecc-go/
+      ├─ evotecc.go
+      └─ go.mod
+```
 
+---
 
-G. Final checklist before submission
-•	README completeness: install, build, run, expected outputs.
-•	No secrets committed: verify crypto/ and PEM/KEY/CRT files are ignored.
-•	Build sanity: make works for Vitis app; chaincode compiles.
-•	Folder consistency: matches the manuscript and the published structure.
+## 2. Reason codes (REC) and decision logic
 
-##The overall architecture is shown below for reference## 
-<img width="128" height="371" alt="Overall_Structure" src="https://github.com/user-attachments/assets/2135e9b7-e813-4461-8a2c-b29dfb7f0b9f" />
+### 2.1 Input checks (from ECC-HLFB-eVOTING validation table)
+The FPGA core evaluates these checks (mapped to signals):
 
+- `CERT_OK`: certificate/MSP validity (Fabric CA / MSP chain)
+- `SIG_OK`: ECDSA/Idemix signature/proof verification result
+- `TIME_OK`: timestamp freshness within `ΔT`
+- `NONCE_OK`: nonce/txID uniqueness (replay detection)
+- `FMT_OK`: protocol/format correctness (IDs, fields, tags, policy fields)
+- `EP_OK`: endorsement/policy satisfaction (minimum endorsements / policy match)
 
+### 2.2 Output mapping (REC)
+`REC` is a 4-bit code:
 
-##The output screenshot is showing both Valid and Invalid Voter tracked by our eVoting_HLFB_ECC_Hardware##
-<img width="1536" height="1024" alt="Output_Screen_Shot" src="https://github.com/user-attachments/assets/91c58dda-87ca-4433-8feb-24ae74a21be3" />
+| REC | Meaning |
+|---:|---|
+| 0 | OK |
+| 1 | CERT_FAIL |
+| 2 | SIG_FAIL |
+| 3 | TIME_FAIL |
+| 4 | REPLAY_FAIL |
+| 5 | FMT_FAIL |
+| 6 | EP_FAIL |
+
+**Priority**: the first failed check determines the reason code (CERT → SIG → TIME → NONCE → FMT → EP).
+
+---
+
+## 3. Standard baseline environment (recommended)
+
+### 3.1 Blockchain side
+- Hyperledger Fabric: **v2.2.x**
+- Docker + Docker Compose
+- Node.js: **18+**
+- Go: **1.20+** (for chaincode build)
+- Fabric Gateway client (Node): `@hyperledger/fabric-gateway`
+
+### 3.2 FPGA side
+- Vivado: **2020.2+**
+- Vitis: **2020.2+**
+- Board: **Xilinx PYNQ / Zynq / ZynqMP** (Linux preferred)
+
+---
+
+## 4. Hardware build (Vivado)
+
+See: `hardware/vivado/build_notes.md`
+
+### 4.1 Recommended integration method (AXI GPIO)
+Use AXI GPIO to pass a compact “check mask” (PS→PL) and read decision + reason code (PL→PS).
+
+**Example (8-bit PS→PL):**
+- bit0 `cert_ok`, bit1 `sig_ok`, bit2 `time_ok`, bit3 `nonce_ok`, bit4 `fmt_ok`, bit5 `ep_ok`, bit6 `start`, bit7 reserved
+
+**Example (8-bit PL→PS):**
+- bit0 `accept`, bits1..4 `rec[3:0]`, bit5 `done`
+
+---
+
+## 5. Software build (Vitis app)
+
+### 5.1 Compile
+```bash
+cd software/vitis_app
+make
+```
+
+### 5.2 Configure
+Edit `software/vitis_app/src/main.c`:
+- `FPGA_BASE_ADDR` : physical MMIO base address (from Vivado Address Editor)
+- `GW`             : Gateway service URL (e.g., `http://192.168.1.10:8080`)
+
+### 5.3 Run (Linux on board)
+```bash
+sudo ./validator_app
+```
+
+---
+
+## 6. Gateway service (Node.js → Fabric v2.2)
+
+This service receives HTTP calls from the Vitis app and submits chaincode transactions via Fabric Gateway.
+
+### 6.1 Configure crypto (local only)
+Place Fabric TLS + user credentials locally at:
+`software/gateway_service/crypto/`
+
+Files expected:
+- `peer0-tls-ca.pem`
+- `user-cert.pem`
+- `user-key.pem`
+
+**These are ignored** and must not be committed.
+
+### 6.2 Install and run
+```bash
+cd software/gateway_service
+npm install
+node server.js
+```
+
+Endpoints:
+- `POST /api/submitVote`
+- `POST /api/logReject`
+
+---
+
+## 7. Chaincode (Go) — vote + fraud logging
+
+Location: `chaincode/evotecc-go/`
+
+Functions:
+- `SubmitVote(voterId, txId, ballotHash, ts)`
+- `LogReject(voterId, txId, reason, ts)`
+
+---
+
+## 8. Validation workflow (end-to-end)
+
+1) Protocol message arrives
+2) Checks are evaluated → FPGA core outputs `ACCEPT` or `REJECT+REC`
+3) Vitis app forwards:
+   - `ACCEPT` → Fabric gateway `submitVote`
+   - `REJECT` → Fabric gateway `logReject`
+4) Chaincode commits votes and/or reject logs to ledger/world state
+
+---
+
+## 9. Fraud tracking and invalid voter identification
+
+Typical signals:
+- `REPLAY_FAIL`: duplicate nonce/txID → replay/double voting attempt
+- `SIG_FAIL` / `CERT_FAIL`: forged identity/credential misuse
+- `TIME_FAIL`: stale submission
+- `EP_FAIL`: endorsement/policy manipulation attempt
+
+Maintain:
+- `fail_count[voterId]`, `last_reason[voterId]`, `last_ts[voterId]`
+
+---
+
+## 10. Screenshots (sample)
+See `hardware/screenshots/`.
+
+---
+
+## 11. License
+Apache-2.0

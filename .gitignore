@@ -1,0 +1,33 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Vivado/Vitis
+*.jou
+*.log
+*.str
+*.cache
+*.runs
+*.sim
+*.xpr
+*.xsa
+*.bit
+*.hdf
+*.sdk
+*.xil
+*.ip_user_files
+*.gen
+*.srcs
+
+# Node
+node_modules/
+
+# Fabric crypto (never commit)
+software/gateway_service/crypto/
+*.pem
+*.key
+*.crt
+
+# Build outputs
+software/vitis_app/validator_app
+software/vitis_app/build/
