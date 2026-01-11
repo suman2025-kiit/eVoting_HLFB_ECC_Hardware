@@ -81,7 +81,8 @@ G. Final checklist before submission
 •	Folder consistency: matches the manuscript and the published structure.
 
 ##The overall architecture is shown below for reference## 
-<img width="151" height="371" alt="Overall_Structure" src="https://github.com/user-attachments/assets/970f3218-833c-4d5d-9e53-edaeb0635e80" />
+<img width="128" height="371" alt="Overall_Structure" src="https://github.com/user-attachments/assets/2135e9b7-e813-4461-8a2c-b29dfb7f0b9f" />
+
 
 
 ##The output screenshot is showing both Valid and Invalid Voter tracked by our eVoting_HLFB_ECC_Hardware##
