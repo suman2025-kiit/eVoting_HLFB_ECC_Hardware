@@ -1,3 +1,4 @@
+
 # ECC-HLFB-eVOTING-FPGA-Validation (Vivado/Vitis + Hyperledger Fabric v2.2)
 
 This repository contains a **reference implementation** of a **hardware-assisted validation gate**
@@ -201,3 +202,5 @@ See `hardware/screenshots/`.
 
 ## 11. License
 Apache-2.0
+
+<img width="1536" height="1024" alt="Output_Screen_Shot" src="https://github.com/user-attachments/assets/2035323e-6dac-42f5-9074-352f36f33442" />
